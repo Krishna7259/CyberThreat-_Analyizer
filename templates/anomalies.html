@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Anomaly Detection — CyberShield AI{% endblock %}
+{% block page_title %}<i class="fas fa-wave-square me-2" style="color:var(--accent-primary)"></i>Anomaly Detection{% endblock %}
+{% block content %}
+<div class="cyber-card mb-3">
+  <div class="card-title"><i class="fas fa-circle-info" style="color:var(--accent-primary)"></i>About Anomaly Detection</div>
+  <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+    The <strong>Isolation Forest</strong> algorithm isolates observations using random partitioning. Observations requiring fewer splits to isolate are considered anomalies.
+    An anomaly does not necessarily indicate an attack — it represents a behavioral pattern that deviates significantly from normal network traffic baselines.
+    Anomaly detection is most effective as a <em>complementary layer</em> to supervised threat classification.
+  </p>
+</div>
+
+<div class="cyber-card mb-3">
+  <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+    <div>
+      <label class="form-label-cyber">Select Analysis Run</label>
+      <select class="cyber-select" id="analysisSelect" style="min-width:260px;">
+        <option value="">— Select a completed analysis —</option>
+      </select>
+    </div>
+    <button class="btn-cyber" onclick="loadAnomalies()"><i class="fas fa-search me-2"></i>Load Anomalies</button>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-4"><div class="cyber-card stat-card"><div class="stat-icon purple"><i class="fas fa-exclamation-triangle"></i></div><div><div class="stat-value" id="an-total">—</div><div class="stat-label">Anomalies Found</div></div></div></div>
+  <div class="col-md-8">
+    <div class="cyber-card">
+      <div class="card-title"><i class="fas fa-circle-info"></i>Interpretation Guide</div>
+      <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:12.5px;color:var(--text-secondary);">
+        <div><strong>Score 0.0 – 0.40</strong><br>Likely normal / expected behavior</div>
+        <div><strong>Score 0.40 – 0.60</strong><br>Borderline / watch carefully</div>
+        <div><strong>Score 0.60 – 1.00</strong><br>Strong behavioral anomaly</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="cyber-card">
+  <div class="card-title"><i class="fas fa-table"></i>Anomalous Events (Anomaly Score ≥ 0.55)</div>
+  <div style="overflow-x:auto;">
+    <table class="cyber-table">
+      <thead><tr><th>Event #</th><th>Anomaly Score</th><th>RF Classification</th><th>Risk Score</th><th>Severity</th></tr></thead>
+      <tbody id="anomalyTbody"><tr><td colspan="5" style="text-align:center;padding:30px;color:var(--text-muted)">Select an analysis to view anomalies.</td></tr></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function loadAnalyses() {
+  const res = await fetch('/api/analysis/history?per_page=50');
+  const data = await res.json();
+  const sel = document.getElementById('analysisSelect');
+  data.analyses.forEach(a => {
+    const opt = document.createElement('option');
+    opt.value = a.id;
+    opt.textContent = `#${a.id} — ${a.dataset_name} (${fmtNum(a.total_events)} events, ${formatDate(a.started_at)})`;
+    sel.appendChild(opt);
+  });
+}
+
+async function loadAnomalies() {
+  const id = document.getElementById('analysisSelect').value;
+  if (!id) { showToast('Please select an analysis.', 'warning'); return; }
+  showLoading('Loading anomaly detection results...');
+  const res = await fetch(`/api/analysis/anomalies/${id}`);
+  const data = await res.json();
+  hideLoading();
+  document.getElementById('an-total').textContent = data.count;
+  const tbody = document.getElementById('anomalyTbody');
+  if (!data.anomalies.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text-muted)">No behavioral anomalies detected above threshold in this analysis.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.anomalies.map(ev => {
+    const p = ev.prediction || {};
+    const score = p.anomaly_score || 0;
+    const scoreColor = score >= 0.7 ? 'var(--danger)' : score >= 0.5 ? 'var(--warning)' : 'var(--success)';
+    return `<tr>
+      <td>#${ev.event_index}</td>
+      <td><div class="score-bar-wrap">
+        <div class="score-bar"><div class="score-fill" style="width:${(score*100).toFixed(0)}%;background:${scoreColor}"></div></div>
+        <span style="font-size:11px;color:${scoreColor};font-weight:700;">${score.toFixed(3)}</span>
+      </div></td>
+      <td>${labelBadge(p.predicted_label||'?')}</td>
+      <td>${(p.risk_score||0).toFixed(1)}</td>
+      <td>${severityBadge(p.severity||'Low')}</td>
+    </tr>`;
+  }).join('');
+}
+
+loadAnalyses();
+</script>
+{% endblock %}

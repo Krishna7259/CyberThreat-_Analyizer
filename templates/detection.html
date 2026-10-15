@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Threat Detection — CyberShield AI{% endblock %}
+{% block page_title %}<i class="fas fa-crosshairs me-2" style="color:var(--accent-primary)"></i>AI Threat Detection{% endblock %}
+{% block content %}
+<div class="row g-3 mb-4">
+  <div class="col-md-5">
+    <div class="cyber-card">
+      <div class="card-title"><i class="fas fa-play-circle"></i>Run Analysis</div>
+      <div style="margin-bottom:14px;">
+        <label class="form-label-cyber">Select Dataset</label>
+        <select class="cyber-select w-100" id="datasetSelect">
+          <option value="">— Choose a validated dataset —</option>
+          {% for ds in datasets %}
+          <option value="{{ ds.id }}">{{ ds.filename }} ({{ ds.record_count }} records)</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button class="btn-cyber w-100" onclick="runDetection()">
+        <i class="fas fa-shield-halved me-2"></i>Run Threat Detection
+      </button>
+      <div id="modelStatus" style="margin-top:14px;font-size:12px;color:var(--text-muted);"></div>
+    </div>
+  </div>
+  <div class="col-md-7">
+    <div class="row g-3">
+      <div class="col-6"><div class="cyber-card stat-card"><div class="stat-icon cyan"><i class="fas fa-list-check"></i></div><div><div class="stat-value" id="r-total">—</div><div class="stat-label">Total Analyzed</div></div></div></div>
+      <div class="col-6"><div class="cyber-card stat-card"><div class="stat-icon red"><i class="fas fa-biohazard"></i></div><div><div class="stat-value" id="r-susp">—</div><div class="stat-label">Suspicious</div></div></div></div>
+      <div class="col-6"><div class="cyber-card stat-card"><div class="stat-icon green"><i class="fas fa-check-double"></i></div><div><div class="stat-value" id="r-normal">—</div><div class="stat-label">Normal</div></div></div></div>
+      <div class="col-6"><div class="cyber-card stat-card"><div class="stat-icon yellow"><i class="fas fa-stopwatch"></i></div><div><div class="stat-value" id="r-time">—</div><div class="stat-label">Processing Time</div></div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Results Table -->
+<div class="cyber-card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <div class="card-title mb-0"><i class="fas fa-table"></i>Detection Results</div>
+    <div style="display:flex;gap:10px;">
+      <input type="text" class="cyber-input" id="searchEvents" placeholder="Search events..." style="width:200px;" oninput="filterTable()"/>
+      <select class="cyber-select" id="filterSeverity" onchange="filterTable()">
+        <option value="">All Severities</option>
+        <option>High</option><option>Medium</option><option>Low</option>
+      </select>
+    </div>
+  </div>
+  <div style="overflow-x:auto;">
+    <table class="cyber-table" id="resultsTable">
+      <thead><tr><th>Event #</th><th>Classification</th><th>Threat Prob.</th><th>Anomaly Score</th><th>Risk Score</th><th>Severity</th><th>Action</th></tr></thead>
+      <tbody id="resultsTbody"><tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:30px;">Upload and analyze a dataset to see results.</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Event Detail Modal -->
+<div class="modal fade" id="eventModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content" style="background:var(--bg-card);border:1px solid var(--border);color:var(--text-primary);">
+      <div class="modal-header" style="border-color:var(--border);">
+        <h5 class="modal-title">Event Detail</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="eventModalBody" style="font-size:13px;"></div>
+      <div class="modal-footer" style="border-color:var(--border);">
+        <button class="btn-ghost" data-bs-dismiss="modal">Close</button>
+        <button class="btn-cyber" id="explainBtn" onclick="explainEvent()"><i class="fas fa-brain me-2"></i>Explain with XAI</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let allRows = [], currentEventId = null;
+
+async function checkModel() {
+  const res = await fetch('/api/models/status');
+  const data = await res.json();
+  const el = document.getElementById('modelStatus');
+  if (data.models_ready) {
+    const v = data.latest_version;
+    el.innerHTML = `<span style="color:var(--success)"><i class="fas fa-circle-check me-1"></i>ML Engine Ready</span> — Model: <code>${v?.version || 'N/A'}</code>, Algorithm: ${v?.algorithm || 'N/A'}`;
+  } else {
+    el.innerHTML = `<span style="color:var(--danger)"><i class="fas fa-circle-xmark me-1"></i>Models not found.</span> Run <code>python ml/train_model.py</code> first.`;
+  }
+}
+
+async function runDetection() {
+  const dsId = document.getElementById('datasetSelect').value;
+  if (!dsId) { showToast('Please select a dataset first.', 'warning'); return; }
+  showLoading('Running Random Forest threat classification...');
+  try {
+    const res = await csrfFetch('/api/analysis/run', { method:'POST', body: JSON.stringify({dataset_id: parseInt(dsId)}) });
+    const data = await res.json();
+    hideLoading();
+    if (data.success) {
+      const a = data.analysis;
+      document.getElementById('r-total').textContent = fmtNum(a.total_events);
+      document.getElementById('r-susp').textContent = fmtNum(a.suspicious_events);
+      document.getElementById('r-normal').textContent = fmtNum(a.normal_events);
+      document.getElementById('r-time').textContent = a.processing_time.toFixed(2) + 's';
+      loadEvents(a.id);
+      showToast(`Analysis done! ${a.suspicious_events} suspicious events found.`, 'success');
+    } else {
+      showToast(data.error, 'error');
+    }
+  } catch(e) { hideLoading(); showToast('Error: ' + e.message, 'error'); }
+}
+
+async function loadEvents(analysisId) {
+  const res = await fetch(`/api/analysis/${analysisId}`);
+  const data = await res.json();
+  allRows = data.events;
+  renderTable(allRows);
+}
+
+function renderTable(rows) {
+  const tbody = document.getElementById('resultsTbody');
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px;">No events found.</td></tr>'; return; }
+  tbody.innerHTML = rows.map(ev => {
+    const p = ev.prediction || {};
+    const sev = p.severity || 'Low';
+    return `<tr>
+      <td>#${ev.event_index}</td>
+      <td>${labelBadge(p.predicted_label || 'Unknown')}</td>
+      <td><div class="score-bar-wrap"><div class="score-bar"><div class="score-fill ${sev.toLowerCase()}" style="width:${((p.prediction_probability||0)*100).toFixed(0)}%"></div></div><span style="font-size:11px;color:var(--text-muted)">${((p.prediction_probability||0)*100).toFixed(1)}%</span></div></td>
+      <td>${(p.anomaly_score||0).toFixed(3)}</td>
+      <td>${(p.risk_score||0).toFixed(1)}</td>
+      <td>${severityBadge(sev)}</td>
+      <td><button class="btn-ghost" style="padding:4px 12px;font-size:11px;" onclick="showEventDetail(${JSON.stringify(ev).replace(/"/g,'&quot;')})">View</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function filterTable() {
+  const search = document.getElementById('searchEvents').value.toLowerCase();
+  const sev = document.getElementById('filterSeverity').value;
+  const filtered = allRows.filter(ev => {
+    const p = ev.prediction || {};
+    const matchSearch = !search || String(ev.event_index).includes(search) || (p.predicted_label||'').toLowerCase().includes(search);
+    const matchSev = !sev || p.severity === sev;
+    return matchSearch && matchSev;
+  });
+  renderTable(filtered);
+}
+
+function showEventDetail(ev) {
+  currentEventId = ev.id;
+  const p = ev.prediction || {};
+  const data = ev.event_data || {};
+  let html = `<div class="row g-2 mb-3">
+    <div class="col-6"><strong>Event #:</strong> ${ev.event_index}</div>
+    <div class="col-6"><strong>Classification:</strong> ${labelBadge(p.predicted_label||'?')}</div>
+    <div class="col-6"><strong>Severity:</strong> ${severityBadge(p.severity||'Low')}</div>
+    <div class="col-6"><strong>Risk Score:</strong> ${(p.risk_score||0).toFixed(1)} / 100</div>
+    <div class="col-6"><strong>Threat Probability:</strong> ${((p.prediction_probability||0)*100).toFixed(2)}%</div>
+    <div class="col-6"><strong>Anomaly Score:</strong> ${(p.anomaly_score||0).toFixed(4)}</div>
+  </div><hr style="border-color:var(--border)"><strong>Event Features:</strong>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:10px;font-size:11.5px;">`;
+  for (const [k,v] of Object.entries(data).slice(0,20)) {
+    html += `<div style="padding:3px 8px;background:rgba(255,255,255,0.02);border-radius:4px;"><span style="color:var(--text-muted)">${k}:</span> <span>${v}</span></div>`;
+  }
+  html += '</div>';
+  document.getElementById('eventModalBody').innerHTML = html;
+  new bootstrap.Modal(document.getElementById('eventModal')).show();
+}
+
+async function explainEvent() {
+  if (!currentEventId) return;
+  showLoading('Computing SHAP explanations...');
+  const modal = bootstrap.Modal.getInstance(document.getElementById('eventModal'));
+  if (modal) modal.hide();
+  try {
+    const res = await fetch(`/api/explanations/${currentEventId}`);
+    const data = await res.json();
+    hideLoading();
+    if (data.success) {
+      window.location.href = '/explainability?event_id=' + currentEventId;
+    } else {
+      showToast('Explanation failed: ' + data.error, 'error');
+    }
+  } catch(e) { hideLoading(); showToast('Error: ' + e.message, 'error'); }
+}
+
+checkModel();
+</script>
+{% endblock %}

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Reports — CyberShield AI{% endblock %}
+{% block page_title %}<i class="fas fa-file-lines me-2" style="color:var(--accent-primary)"></i>Reports{% endblock %}
+{% block content %}
+<div class="cyber-card">
+  <div class="card-title"><i class="fas fa-download"></i>Download Analysis Reports</div>
+  <p style="font-size:13px;color:var(--text-muted);margin-bottom:18px;">Select a completed analysis to generate and download a PDF or CSV report with full event data.</p>
+  {% if not analyses %}
+  <div style="text-align:center;padding:40px;color:var(--text-muted);">
+    <i class="fas fa-folder-open" style="font-size:48px;margin-bottom:16px;color:rgba(100,116,139,0.3);"></i>
+    <p>No completed analyses yet. Run a threat detection analysis first.</p>
+    <a href="{{ url_for('datasets.upload_page') }}" class="btn-cyber" style="display:inline-block;margin-top:14px;">
+      <i class="fas fa-upload me-2"></i>Upload Dataset
+    </a>
+  </div>
+  {% else %}
+  <div style="overflow-x:auto;">
+    <table class="cyber-table">
+      <thead><tr><th>Analysis ID</th><th>Dataset</th><th>Date</th><th>Events</th><th>Suspicious</th><th>PDF Report</th><th>CSV Export</th></tr></thead>
+      <tbody>
+        {% for a in analyses %}
+        <tr>
+          <td>#{{ a.id }}</td>
+          <td>{{ a.dataset.filename if a.dataset else 'Unknown' }}</td>
+          <td style="font-size:11.5px;">{{ a.started_at.strftime('%Y-%m-%d %H:%M') if a.started_at else 'N/A' }}</td>
+          <td>{{ a.total_events | default(0) }}</td>
+          <td><span style="color:var(--danger)">{{ a.suspicious_events | default(0) }}</span></td>
+          <td>
+            <a href="/api/reports/{{ a.id }}/pdf" class="btn-cyber" style="padding:6px 14px;font-size:12px;display:inline-flex;align-items:center;gap:6px;">
+              <i class="fas fa-file-pdf"></i>Download PDF
+            </a>
+          </td>
+          <td>
+            <a href="/api/reports/{{ a.id }}/csv" class="btn-ghost" style="padding:6px 14px;font-size:12px;display:inline-flex;align-items:center;gap:6px;">
+              <i class="fas fa-file-csv"></i>Download CSV
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

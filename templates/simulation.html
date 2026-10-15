@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% block title %}Live Simulation — CyberShield AI{% endblock %}
+{% block page_title %}<i class="fas fa-satellite-dish me-2" style="color:var(--accent-primary)"></i>Simulated Real-Time Monitoring{% endblock %}
+{% block content %}
+<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:12px 16px;font-size:12.5px;color:#F59E0B;margin-bottom:20px;">
+  <i class="fas fa-info-circle me-2"></i><strong>Simulated Real-Time Security Monitoring</strong> — Events are replayed sequentially from an uploaded dataset with live ML inference. This does not capture live production network traffic.
+</div>
+
+<!-- Controls -->
+<div class="cyber-card mb-3">
+  <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;">
+    <div>
+      <label class="form-label-cyber">Dataset Source</label>
+      <select class="cyber-select" id="simDataset">
+        <option value="">— Built-in test stream (120 events) —</option>
+        {% for ds in datasets %}<option value="{{ ds.id }}">{{ ds.filename }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="form-label-cyber">Replay Speed</label>
+      <select class="cyber-select" id="simSpeed">
+        <option value="0.5">0.5× (Slow)</option>
+        <option value="1" selected>1× (Normal)</option>
+        <option value="2">2× (Fast)</option>
+        <option value="5">5× (Turbo)</option>
+      </select>
+    </div>
+    <div class="sim-controls">
+      <button class="btn-cyber" id="btnStart" onclick="startSim()"><i class="fas fa-play me-2"></i>Start</button>
+      <button class="btn-ghost" id="btnPause" onclick="pauseSim()" disabled><i class="fas fa-pause me-2"></i>Pause</button>
+      <button class="btn-ghost" id="btnResume" onclick="resumeSim()" style="display:none;"><i class="fas fa-play me-2"></i>Resume</button>
+      <button class="btn-ghost" id="btnStop" onclick="stopSim()" disabled style="color:var(--danger);border-color:rgba(239,68,68,0.3);"><i class="fas fa-stop me-2"></i>Stop</button>
+    </div>
+  </div>
+</div>
+
+<!-- Status Banner -->
+<div class="cyber-card mb-3" id="statusBanner">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span id="liveIndicator" style="font-size:13px;font-weight:600;color:var(--text-muted);">● Stopped</span>
+      <span style="font-size:12px;color:var(--text-muted);">Progress: <span id="simProg">0%</span></span>
+    </div>
+    <div style="flex:1;min-width:200px;"><div class="progress-cyber" style="height:8px;"><div class="progress-fill" id="simProgressBar" style="width:0%"></div></div></div>
+  </div>
+</div>
+
+<!-- Live Stats -->
+<div class="row g-3 mb-3">
+  <div class="col-6 col-md-2"><div class="sim-stat"><div class="sim-stat-val" id="st-total">0</div><div class="sim-stat-lbl">Processed</div></div></div>
+  <div class="col-6 col-md-2"><div class="sim-stat"><div class="sim-stat-val" style="color:var(--danger)" id="st-susp">0</div><div class="sim-stat-lbl">Suspicious</div></div></div>
+  <div class="col-6 col-md-2"><div class="sim-stat"><div class="sim-stat-val" style="color:var(--success)" id="st-norm">0</div><div class="sim-stat-lbl">Normal</div></div></div>
+  <div class="col-6 col-md-2"><div class="sim-stat"><div class="sim-stat-val" style="color:var(--danger)" id="st-high">0</div><div class="sim-stat-lbl">High Risk</div></div></div>
+  <div class="col-6 col-md-2"><div class="sim-stat"><div class="sim-stat-val" style="color:var(--warning)" id="st-med">0</div><div class="sim-stat-lbl">Medium Risk</div></div></div>
+  <div class="col-6 col-md-2"><div class="sim-stat"><div class="sim-stat-val" style="color:#8B5CF6" id="st-anom">0</div><div class="sim-stat-lbl">Anomalies</div></div></div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="cyber-card">
+      <div class="card-title"><i class="fas fa-stream"></i>Live Event Feed</div>
+      <div id="eventFeed" style="max-height:340px;overflow-y:auto;font-size:12px;"></div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="cyber-card">
+      <div class="card-title"><i class="fas fa-chart-area"></i>Live Threat Activity</div>
+      <div class="chart-wrapper"><canvas id="liveChart"></canvas></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let pollInterval = null;
+let liveChart, liveLabels = [], liveSusp = [], liveNorm = [];
+
+// Init chart
+const ctx = document.getElementById('liveChart').getContext('2d');
+liveChart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: liveLabels,
+    datasets: [
+      { label: 'Suspicious', data: liveSusp, borderColor: '#EF4444', backgroundColor: 'rgba(239,68,68,0.1)', tension: 0.4, fill: true, pointRadius: 3 },
+      { label: 'Normal', data: liveNorm, borderColor: '#22C55E', backgroundColor: 'rgba(34,197,94,0.05)', tension: 0.4, fill: true, pointRadius: 3 }
+    ]
+  },
+  options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { labels: { color: '#94A3B8', font: { size: 11 } } } }, scales: { x: { ticks: { color: '#64748B', maxTicksLimit: 8 }, grid: { color: 'rgba(255,255,255,0.04)' } }, y: { ticks: { color: '#64748B' }, grid: { color: 'rgba(255,255,255,0.04)' } } } }
+});
+
+async function startSim() {
+  const dsId = document.getElementById('simDataset').value || null;
+  const speed = parseFloat(document.getElementById('simSpeed').value);
+  const body = { speed };
+  if (dsId) body.dataset_id = parseInt(dsId);
+  await csrfFetch('/api/simulation/start', { method:'POST', body: JSON.stringify(body) });
+  document.getElementById('btnStart').disabled = true;
+  document.getElementById('btnPause').disabled = false;
+  document.getElementById('btnStop').disabled = false;
+  document.getElementById('liveIndicator').innerHTML = '<span class="live-dot"></span>Live Monitoring...';
+  document.getElementById('liveIndicator').style.color = 'var(--danger)';
+  liveLabels = []; liveSusp = []; liveNorm = [];
+  liveChart.update();
+  startPolling(speed);
+  showToast('Simulation started.', 'success');
+}
+
+async function pauseSim() {
+  await csrfFetch('/api/simulation/pause', { method:'POST' });
+  clearInterval(pollInterval); pollInterval = null;
+  document.getElementById('btnPause').style.display = 'none';
+  document.getElementById('btnResume').style.display = '';
+  document.getElementById('liveIndicator').innerHTML = '<i class="fas fa-pause me-1"></i>Paused';
+  document.getElementById('liveIndicator').style.color = 'var(--warning)';
+}
+
+async function resumeSim() {
+  await csrfFetch('/api/simulation/resume', { method:'POST' });
+  document.getElementById('btnPause').style.display = '';
+  document.getElementById('btnResume').style.display = 'none';
+  document.getElementById('liveIndicator').innerHTML = '<span class="live-dot"></span>Live Monitoring...';
+  document.getElementById('liveIndicator').style.color = 'var(--danger)';
+  const speed = parseFloat(document.getElementById('simSpeed').value);
+  startPolling(speed);
+}
+
+async function stopSim() {
+  await csrfFetch('/api/simulation/stop', { method:'POST' });
+  clearInterval(pollInterval); pollInterval = null;
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('btnPause').disabled = true;
+  document.getElementById('btnPause').style.display = '';
+  document.getElementById('btnResume').style.display = 'none';
+  document.getElementById('btnStop').disabled = true;
+  document.getElementById('liveIndicator').innerHTML = '● Stopped';
+  document.getElementById('liveIndicator').style.color = 'var(--text-muted)';
+  showToast('Simulation stopped.', 'info');
+}
+
+function startPolling(speed) {
+  if (pollInterval) clearInterval(pollInterval);
+  const delay = Math.max(600, 1500 / speed);
+  pollInterval = setInterval(pollEvents, delay);
+}
+
+async function pollEvents() {
+  const res = await fetch('/api/simulation/events?batch=2');
+  const data = await res.json();
+  if (data.status === 'completed') { stopSim(); showToast('Simulation complete — all events processed.', 'success'); return; }
+  updateStats(data.stats);
+  updateProgress(data.progress || 0);
+  if (data.new_events && data.new_events.length) {
+    appendEvents(data.new_events);
+    updateChart(data.new_events);
+  }
+}
+
+function updateStats(s) {
+  document.getElementById('st-total').textContent = s.total_processed;
+  document.getElementById('st-susp').textContent = s.suspicious_count;
+  document.getElementById('st-norm').textContent = s.normal_count;
+  document.getElementById('st-high').textContent = s.high_risk_count;
+  document.getElementById('st-med').textContent = s.medium_risk_count;
+  document.getElementById('st-anom').textContent = s.anomalies_count;
+}
+function updateProgress(pct) {
+  document.getElementById('simProgressBar').style.width = pct + '%';
+  document.getElementById('simProg').textContent = pct.toFixed(1) + '%';
+}
+
+function appendEvents(events) {
+  const feed = document.getElementById('eventFeed');
+  events.forEach(ev => {
+    const isSusp = ev.predicted_label === 'Suspicious';
+    const color = isSusp ? 'var(--danger)' : 'var(--success)';
+    const div = document.createElement('div');
+    div.style.cssText = 'padding:6px 8px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;';
+    div.innerHTML = `<span style="color:var(--text-muted);font-family:monospace;">[${new Date().toLocaleTimeString()}]</span>
+      <span>Event #${ev.stream_index || '?'} — <strong style="color:${color}">${ev.predicted_label}</strong></span>
+      <span style="font-size:10px;color:var(--text-muted)">Risk: ${ev.risk_score.toFixed(1)}</span>
+      ${severityBadge(ev.severity)}`;
+    feed.insertBefore(div, feed.firstChild);
+    if (feed.children.length > 60) feed.removeChild(feed.lastChild);
+  });
+}
+
+function updateChart(events) {
+  const susp = events.filter(e => e.predicted_label === 'Suspicious').length;
+  const norm = events.length - susp;
+  const t = new Date().toLocaleTimeString('en', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  liveLabels.push(t); liveSusp.push(susp); liveNorm.push(norm);
+  if (liveLabels.length > 30) { liveLabels.shift(); liveSusp.shift(); liveNorm.shift(); }
+  liveChart.data.labels = liveLabels;
+  liveChart.data.datasets[0].data = liveSusp;
+  liveChart.data.datasets[1].data = liveNorm;
+  liveChart.update('none');
+}
+</script>
+{% endblock %}

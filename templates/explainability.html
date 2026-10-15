@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Explainable AI — CyberShield AI{% endblock %}
+{% block page_title %}<i class="fas fa-brain me-2" style="color:var(--accent-primary)"></i>Explainable AI (XAI){% endblock %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-4">
+    <div class="cyber-card">
+      <div class="card-title"><i class="fas fa-search"></i>Select Event to Explain</div>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Enter a Security Event ID to get a SHAP-powered feature attribution breakdown.</p>
+      <label class="form-label-cyber">Event ID</label>
+      <input type="number" id="eventIdInput" class="cyber-input" placeholder="e.g. 1, 2, 3..." min="1"/>
+      <button class="btn-cyber w-100 mt-3" onclick="explainEvent()">
+        <i class="fas fa-microscope me-2"></i>Compute Explanation
+      </button>
+      <div style="margin-top:16px;padding:12px;background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.15);border-radius:8px;font-size:11.5px;color:var(--text-muted);">
+        <i class="fas fa-circle-info me-2" style="color:var(--accent-primary)"></i>SHAP (SHapley Additive exPlanations) computes the marginal contribution of each network feature to the prediction. Positive contributions increase threat probability; negative contributions reduce it.
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-8">
+    <div class="cyber-card" id="explanationCard" style="display:none;">
+      <!-- Prediction Summary -->
+      <div class="card-title"><i class="fas fa-chart-bar"></i>Explanation Results</div>
+      <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+          <div style="text-align:center;padding:14px;background:rgba(255,255,255,0.02);border-radius:10px;">
+            <div id="xPredClass" style="font-size:20px;font-weight:800;"></div>
+            <div style="font-size:10px;text-transform:uppercase;color:var(--text-muted);margin-top:4px;">Prediction</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div style="text-align:center;padding:14px;background:rgba(255,255,255,0.02);border-radius:10px;">
+            <div id="xProb" style="font-size:20px;font-weight:800;color:var(--accent-primary)"></div>
+            <div style="font-size:10px;text-transform:uppercase;color:var(--text-muted);margin-top:4px;">Threat Probability</div>
+          </div>
+        </div>
+        <div class="col-12 col-md-6">
+          <div style="padding:14px;background:rgba(255,255,255,0.02);border-radius:10px;">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Plain-Language Explanation:</div>
+            <div id="xNarrative" style="font-size:12.5px;color:var(--text-secondary);line-height:1.6;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SHAP Feature Bars -->
+      <div class="card-title"><i class="fas fa-sliders"></i>Feature Contributions (SHAP Values)</div>
+      <p style="font-size:11.5px;color:var(--text-muted);margin-bottom:16px;">
+        <span style="display:inline-block;width:12px;height:12px;background:linear-gradient(90deg,#EF4444,#F97316);border-radius:3px;margin-right:6px;"></span>Increases threat risk &nbsp;&nbsp;
+        <span style="display:inline-block;width:12px;height:12px;background:linear-gradient(90deg,#22C55E,#06B6D4);border-radius:3px;margin-right:6px;"></span>Reduces threat risk
+      </p>
+      <div id="shapBars"></div>
+    </div>
+    <div class="cyber-card" id="emptyExplanation">
+      <div style="text-align:center;padding:60px 20px;color:var(--text-muted);">
+        <i class="fas fa-brain" style="font-size:48px;margin-bottom:16px;color:rgba(0,212,255,0.2);"></i>
+        <p style="font-size:14px;">Enter an Event ID and click "Compute Explanation" to see SHAP feature attributions.</p>
+        <p style="font-size:12px;margin-top:8px;">You can find Event IDs in the Threat Detection page.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('event_id')) {
+  document.getElementById('eventIdInput').value = urlParams.get('event_id');
+  setTimeout(explainEvent, 500);
+}
+
+async function explainEvent() {
+  const id = document.getElementById('eventIdInput').value;
+  if (!id) { showToast('Please enter an Event ID.', 'warning'); return; }
+  showLoading('Computing SHAP feature attributions...');
+  try {
+    const res = await fetch(`/api/explanations/${id}`);
+    const data = await res.json();
+    hideLoading();
+    if (!data.success) { showToast(data.error || 'Explanation failed.', 'error'); return; }
+    renderExplanation(data.explanation);
+  } catch(e) { hideLoading(); showToast('Request failed: ' + e.message, 'error'); }
+}
+
+function renderExplanation(exp) {
+  document.getElementById('emptyExplanation').style.display = 'none';
+  const card = document.getElementById('explanationCard');
+  card.style.display = 'block';
+
+  const isSusp = exp.predicted_class === 'Suspicious';
+  document.getElementById('xPredClass').innerHTML = isSusp
+    ? '<span style="color:var(--danger)">Suspicious</span>'
+    : '<span style="color:var(--success)">Normal</span>';
+  document.getElementById('xProb').textContent = (exp.threat_probability * 100).toFixed(1) + '%';
+  document.getElementById('xNarrative').textContent = exp.explanation_text;
+
+  const shapDiv = document.getElementById('shapBars');
+  if (!exp.top_contributions || !exp.top_contributions.length) {
+    shapDiv.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:20px;">No feature contributions available.</p>';
+    return;
+  }
+
+  // Find max absolute contribution for scale
+  const maxAbs = Math.max(...exp.top_contributions.map(c => Math.abs(c.contribution)));
+
+  shapDiv.innerHTML = exp.top_contributions.map(c => {
+    const w = maxAbs > 0 ? (Math.abs(c.contribution) / maxAbs) * 100 : 0;
+    const isPos = c.contribution > 0;
+    return `<div class="shap-bar-row">
+      <div class="shap-feature-name">${c.feature}</div>
+      <div class="shap-bar-track">
+        <div class="shap-bar-fill ${isPos ? 'pos' : 'neg'}" style="width:${w.toFixed(1)}%"></div>
+      </div>
+      <div class="shap-val" style="color:${isPos ? 'var(--danger)' : 'var(--success)'}">
+        ${c.contribution >= 0 ? '+' : ''}${c.contribution.toFixed(3)}
+      </div>
+      <div style="font-size:10px;color:var(--text-muted);width:120px;">${c.impact}</div>
+    </div>`;
+  }).join('');
+}
+</script>
+{% endblock %}

@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Security Alerts — CyberShield AI{% endblock %}
+{% block page_title %}<i class="fas fa-bell me-2" style="color:var(--accent-primary)"></i>Security Alerts{% endblock %}
+{% block content %}
+<div class="cyber-card mb-3">
+  <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+    <input type="text" class="cyber-input" id="searchAlerts" placeholder="Search alerts..." style="width:200px;" oninput="loadAlerts()"/>
+    <select class="cyber-select" id="filterSev" onchange="loadAlerts()">
+      <option value="all">All Severities</option>
+      <option>High</option><option>Medium</option><option>Low</option>
+    </select>
+    <select class="cyber-select" id="filterStatus" onchange="loadAlerts()">
+      <option value="all">All Statuses</option>
+      <option>New</option><option>Under Review</option><option>Reviewed</option><option>False Positive</option>
+    </select>
+    <div style="margin-left:auto;font-size:13px;color:var(--text-muted);">Total: <span id="alertCount">—</span></div>
+  </div>
+</div>
+
+<div class="cyber-card">
+  <div style="overflow-x:auto;">
+    <table class="cyber-table">
+      <thead><tr><th>ID</th><th>Severity</th><th>Description</th><th>Status</th><th>Created</th><th>Action</th></tr></thead>
+      <tbody id="alertsTbody"><tr><td colspan="6" style="text-align:center;padding:30px;color:var(--text-muted)">Loading...</td></tr></tbody>
+    </table>
+  </div>
+  <div id="pagination" style="display:flex;gap:8px;margin-top:14px;justify-content:center;"></div>
+</div>
+
+<!-- Update Alert Modal -->
+<div class="modal fade" id="alertModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="background:var(--bg-card);border:1px solid var(--border);color:var(--text-primary);">
+      <div class="modal-header" style="border-color:var(--border);">
+        <h5 class="modal-title">Update Alert #<span id="modalAlertId"></span></h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="alertDetail" style="font-size:13px;margin-bottom:16px;"></div>
+        <div style="margin-bottom:12px;">
+          <label class="form-label-cyber">Update Status</label>
+          <select class="cyber-select w-100" id="modalStatus">
+            <option>New</option><option>Under Review</option><option>Reviewed</option><option>False Positive</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label-cyber">Analyst Notes</label>
+          <textarea class="cyber-input" id="modalNotes" rows="3" placeholder="Add investigation notes..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer" style="border-color:var(--border);">
+        <button class="btn-ghost" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn-cyber" onclick="saveAlert()">Save Update</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let currentPage = 1, currentAlertId = null;
+
+async function loadAlerts(page = 1) {
+  currentPage = page;
+  const sev = document.getElementById('filterSev').value;
+  const status = document.getElementById('filterStatus').value;
+  const search = document.getElementById('searchAlerts').value;
+  const params = new URLSearchParams({severity:sev, status, search, page, per_page:20});
+  const res = await fetch('/api/alerts?' + params);
+  const data = await res.json();
+  document.getElementById('alertCount').textContent = data.total;
+  const tbody = document.getElementById('alertsTbody');
+  if (!data.alerts.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--text-muted)">No alerts found.</td></tr>';
+  } else {
+    tbody.innerHTML = data.alerts.map(a => `
+      <tr>
+        <td>#${a.id}</td>
+        <td>${severityBadge(a.severity)}</td>
+        <td style="max-width:350px;"><div style="font-size:12px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${a.description}</div></td>
+        <td><span class="badge-severity" style="background:rgba(100,116,139,0.15);color:#94A3B8;border:1px solid var(--border);">${a.status}</span></td>
+        <td style="font-size:11.5px;">${formatDate(a.created_at)}</td>
+        <td><button class="btn-ghost" style="padding:4px 12px;font-size:11px;" onclick="openModal(${JSON.stringify(a).replace(/"/g,'&quot;')})">Review</button></td>
+      </tr>`).join('');
+  }
+  // Pagination
+  let pHtml = '';
+  for (let i = 1; i <= data.pages; i++) {
+    pHtml += `<button class="btn-ghost" style="padding:4px 10px;font-size:12px;${i===page?'border-color:var(--accent-primary);color:var(--accent-primary)':''}" onclick="loadAlerts(${i})">${i}</button>`;
+  }
+  document.getElementById('pagination').innerHTML = pHtml;
+}
+
+function openModal(alert) {
+  currentAlertId = alert.id;
+  document.getElementById('modalAlertId').textContent = alert.id;
+  document.getElementById('modalStatus').value = alert.status;
+  document.getElementById('modalNotes').value = alert.analyst_notes || '';
+  document.getElementById('alertDetail').innerHTML = `
+    <div style="padding:10px;background:rgba(255,255,255,0.02);border-radius:8px;">
+      <div style="margin-bottom:6px;">${severityBadge(alert.severity)} <span style="color:var(--text-muted);font-size:12px;margin-left:8px;">${formatDate(alert.created_at)}</span></div>
+      <p style="color:var(--text-secondary);">${alert.description}</p>
+    </div>`;
+  new bootstrap.Modal(document.getElementById('alertModal')).show();
+}
+
+async function saveAlert() {
+  if (!currentAlertId) return;
+  const status = document.getElementById('modalStatus').value;
+  const notes = document.getElementById('modalNotes').value;
+  const res = await csrfFetch(`/api/alerts/${currentAlertId}`, { method:'PATCH', body: JSON.stringify({status, analyst_notes: notes}) });
+  const data = await res.json();
+  const modal = bootstrap.Modal.getInstance(document.getElementById('alertModal'));
+  if (modal) modal.hide();
+  if (data.success) { showToast('Alert updated successfully.', 'success'); loadAlerts(currentPage); }
+  else showToast(data.error, 'error');
+}
+
+loadAlerts();
+</script>
+{% endblock %}

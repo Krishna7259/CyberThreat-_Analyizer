@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — CyberShield AI{% endblock %}
+{% block page_title %}<i class="fas fa-gauge-high me-2" style="color:var(--accent-primary)"></i>Security Dashboard{% endblock %}
+{% block content %}
+
+<!-- Stat Cards Row -->
+<div class="row g-3 mb-4" id="statsRow">
+  <div class="col-6 col-md-3"><div class="cyber-card stat-card"><div class="stat-icon cyan"><i class="fas fa-network-wired"></i></div><div><div class="stat-value" id="s-total">—</div><div class="stat-label">Total Events</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="cyber-card stat-card"><div class="stat-icon green"><i class="fas fa-circle-check"></i></div><div><div class="stat-value" id="s-normal">—</div><div class="stat-label">Normal Events</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="cyber-card stat-card"><div class="stat-icon red"><i class="fas fa-skull-crossbones"></i></div><div><div class="stat-value" id="s-susp">—</div><div class="stat-label">Suspicious</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="cyber-card stat-card"><div class="stat-icon yellow"><i class="fas fa-bell"></i></div><div><div class="stat-value" id="s-alerts">—</div><div class="stat-label">Total Alerts</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="cyber-card stat-card"><div class="stat-icon red"><i class="fas fa-triangle-exclamation"></i></div><div><div class="stat-value" id="s-high">—</div><div class="stat-label">High Risk</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="cyber-card stat-card"><div class="stat-icon yellow"><i class="fas fa-exclamation"></i></div><div><div class="stat-value" id="s-med">—</div><div class="stat-label">Medium Risk</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="cyber-card stat-card"><div class="stat-icon green"><i class="fas fa-shield"></i></div><div><div class="stat-value" id="s-low">—</div><div class="stat-label">Low Risk</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="cyber-card stat-card"><div class="stat-icon blue"><i class="fas fa-database"></i></div><div><div class="stat-value" id="s-datasets">—</div><div class="stat-label">Datasets</div></div></div></div>
+</div>
+
+<!-- Charts Row -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="cyber-card h-100">
+      <div class="card-title"><i class="fas fa-chart-pie"></i>Threat Distribution</div>
+      <div class="chart-wrapper"><canvas id="threatDoughnut"></canvas></div>
+    </div>
+  </div>
+  <div class="col-md-8">
+    <div class="cyber-card h-100">
+      <div class="card-title"><i class="fas fa-chart-line"></i>Analysis Activity Timeline</div>
+      <div class="chart-wrapper-lg"><canvas id="timelineChart"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-6">
+    <div class="cyber-card h-100">
+      <div class="card-title"><i class="fas fa-chart-bar"></i>Severity Distribution</div>
+      <div class="chart-wrapper"><canvas id="severityBar"></canvas></div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="cyber-card h-100">
+      <div class="card-title"><i class="fas fa-bell"></i>Recent Alerts</div>
+      <div id="recentAlerts" style="font-size:13px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Recent Activity -->
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="cyber-card">
+      <div class="card-title"><i class="fas fa-database"></i>Latest Datasets</div>
+      <table class="cyber-table"><thead><tr><th>Filename</th><th>Records</th><th>Date</th></tr></thead>
+      <tbody id="recentDatasets"></tbody></table>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="cyber-card">
+      <div class="card-title"><i class="fas fa-clock-rotate-left"></i>Recent Analyses</div>
+      <table class="cyber-table"><thead><tr><th>Dataset</th><th>Events</th><th>Date</th></tr></thead>
+      <tbody id="recentAnalyses"></tbody></table>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+let doughnut, timeline, severity;
+
+async function loadDashboard() {
+  const [sumRes, chartRes] = await Promise.all([
+    fetch('/api/dashboard/summary'), fetch('/api/dashboard/charts')
+  ]);
+  const sum = await sumRes.json();
+  const charts = await chartRes.json();
+
+  const s = sum.stats;
+  document.getElementById('s-total').textContent = fmtNum(s.total_events);
+  document.getElementById('s-normal').textContent = fmtNum(s.normal_events);
+  document.getElementById('s-susp').textContent = fmtNum(s.suspicious_events);
+  document.getElementById('s-alerts').textContent = fmtNum(s.total_alerts);
+  document.getElementById('s-high').textContent = fmtNum(s.high_risk_events);
+  document.getElementById('s-med').textContent = fmtNum(s.medium_risk_events);
+  document.getElementById('s-low').textContent = fmtNum(s.low_risk_events);
+  document.getElementById('s-datasets').textContent = fmtNum(s.total_datasets);
+
+  // Doughnut
+  const dCtx = document.getElementById('threatDoughnut').getContext('2d');
+  const ld = charts.label_distribution;
+  if (doughnut) doughnut.destroy();
+  doughnut = new Chart(dCtx, {
+    type: 'doughnut',
+    data: {
+      labels: Object.keys(ld).length ? Object.keys(ld) : ['No Data'],
+      datasets: [{ data: Object.keys(ld).length ? Object.values(ld) : [1], backgroundColor: ['#22C55E','#EF4444','#F59E0B','#8B5CF6'], borderWidth: 0, hoverOffset: 6 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#94A3B8', font: { size: 11 }, padding: 14 } } } }
+  });
+
+  // Timeline
+  const tCtx = document.getElementById('timelineChart').getContext('2d');
+  const tl = charts.timeline;
+  if (timeline) timeline.destroy();
+  timeline = new Chart(tCtx, {
+    type: 'line',
+    data: {
+      labels: tl.map(t => t.date) || ['No data'],
+      datasets: [
+        { label: 'Suspicious', data: tl.map(t => t.suspicious), borderColor: '#EF4444', backgroundColor: 'rgba(239,68,68,0.1)', tension: 0.4, fill: true },
+        { label: 'Normal', data: tl.map(t => t.normal), borderColor: '#22C55E', backgroundColor: 'rgba(34,197,94,0.06)', tension: 0.4, fill: true }
+      ]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#94A3B8', font: { size: 11 } } } }, scales: { x: { ticks: { color: '#64748B' }, grid: { color: 'rgba(255,255,255,0.04)' } }, y: { ticks: { color: '#64748B' }, grid: { color: 'rgba(255,255,255,0.04)' } } } }
+  });
+
+  // Severity bar
+  const sCtx = document.getElementById('severityBar').getContext('2d');
+  const sd = charts.severity_distribution;
+  if (severity) severity.destroy();
+  severity = new Chart(sCtx, {
+    type: 'bar',
+    data: {
+      labels: ['High', 'Medium', 'Low'],
+      datasets: [{ data: [sd.High || 0, sd.Medium || 0, sd.Low || 0], backgroundColor: ['rgba(239,68,68,0.7)','rgba(245,158,11,0.7)','rgba(34,197,94,0.7)'], borderRadius: 6 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#94A3B8' }, grid: { display: false } }, y: { ticks: { color: '#64748B' }, grid: { color: 'rgba(255,255,255,0.04)' } } } }
+  });
+
+  // Recent alerts
+  const alertsEl = document.getElementById('recentAlerts');
+  if (sum.recent_alerts.length === 0) {
+    alertsEl.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:20px;">No recent alerts</p>';
+  } else {
+    alertsEl.innerHTML = sum.recent_alerts.map(a => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);">
+        <span style="font-size:12px;color:var(--text-secondary);">${a.description.substring(0, 60)}...</span>
+        ${severityBadge(a.severity)}
+      </div>`).join('');
+  }
+
+  // Recent datasets
+  document.getElementById('recentDatasets').innerHTML = sum.recent_datasets.map(d => `
+    <tr><td>${d.filename}</td><td>${fmtNum(d.record_count)}</td><td>${formatDate(d.uploaded_at)}</td></tr>`).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--text-muted)">No datasets yet</td></tr>';
+
+  // Recent analyses
+  document.getElementById('recentAnalyses').innerHTML = sum.recent_analyses.map(a => `
+    <tr><td>${a.dataset_name}</td><td>${fmtNum(a.total_events)}</td><td>${formatDate(a.started_at)}</td></tr>`).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--text-muted)">No analyses yet</td></tr>';
+}
+
+loadDashboard();
+setInterval(loadDashboard, 30000);
+</script>
+{% endblock %}

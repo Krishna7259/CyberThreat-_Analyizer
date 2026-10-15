@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Login — CyberShield AI{% endblock %}
+{% block content %}
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg-primary);">
+  <div style="width:100%;max-width:420px;padding:0 16px;">
+    <div class="cyber-card" style="border-color:rgba(0,212,255,0.15);">
+      <!-- Brand -->
+      <div style="text-align:center;margin-bottom:28px;">
+        <div style="width:60px;height:60px;border-radius:16px;background:linear-gradient(135deg,var(--accent-primary),var(--accent-secondary));display:flex;align-items:center;justify-content:center;font-size:26px;color:#fff;margin:0 auto 14px;">
+          <i class="fas fa-shield-halved"></i>
+        </div>
+        <h1 style="font-size:22px;font-weight:800;color:var(--text-primary);">CyberShield AI</h1>
+        <p style="font-size:12.5px;color:var(--text-muted);margin-top:4px;">Intelligent Cyber Threat Detection Platform</p>
+      </div>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ 'danger' if category == 'danger' else category }} alert-dismissible fade show mb-3" style="font-size:13px;" role="alert">
+          {{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+      {% endwith %}
+
+      <form method="POST" action="{{ url_for('auth.login_page') }}">
+        <div style="margin-bottom:16px;">
+          <label class="form-label-cyber">Username</label>
+          <div style="position:relative;">
+            <i class="fas fa-user" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px;"></i>
+            <input type="text" name="username" class="cyber-input" style="padding-left:36px;" placeholder="Enter your username" required autofocus/>
+          </div>
+        </div>
+        <div style="margin-bottom:22px;">
+          <label class="form-label-cyber">Password</label>
+          <div style="position:relative;">
+            <i class="fas fa-lock" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px;"></i>
+            <input type="password" name="password" id="pwField" class="cyber-input" style="padding-left:36px;padding-right:40px;" placeholder="Enter your password" required/>
+            <button type="button" onclick="togglePw()" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-muted);cursor:pointer;" tabindex="-1">
+              <i class="fas fa-eye" id="pwEye"></i>
+            </button>
+          </div>
+        </div>
+        <button type="submit" class="btn-cyber w-100" style="width:100%;padding:12px;">
+          <i class="fas fa-right-to-bracket me-2"></i>Sign In
+        </button>
+      </form>
+
+      <div style="margin-top:24px;padding-top:18px;border-top:1px solid var(--border);font-size:11.5px;color:var(--text-muted);text-align:center;">
+        <p><strong>Demo Admin:</strong> admin / Admin@CyberShield2026!</p>
+        <p><strong>Demo Analyst:</strong> analyst / Analyst@CyberShield2026!</p>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+function togglePw(){
+  const f=document.getElementById('pwField'), e=document.getElementById('pwEye');
+  f.type=f.type==='password'?'text':'password';
+  e.className=f.type==='password'?'fas fa-eye':'fas fa-eye-slash';
+}
+</script>
+{% endblock %}

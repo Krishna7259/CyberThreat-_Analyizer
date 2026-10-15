@@ -1,0 +1,11 @@
+{
+  "version": "v1.0.0-unsw-nb15",
+  "algorithm": "Random Forest Classifier + Isolation Forest Anomaly Detector",
+  "dataset_name": "unsw_nb15_sample.csv",
+  "features_count": 30,
+  "training_samples": 480,
+  "test_samples": 120,
+  "training_date": "2026-10-13T14:45:48.604622+00:00",
+  "rf_estimators": 100,
+  "random_state": 42
+}
